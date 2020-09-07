@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"github.com/NullExceptionNull/go_structrue/kafka"
 	"github.com/hpcloud/tail"
-	"sync"
 )
 
 const FILE_NAME string = "./log"
@@ -34,9 +33,7 @@ func run() {
 
 	for line := range lines.Lines {
 		//这里发到kafka
-		fmt.Println(line.Text)
-		kafka := kafka.Kafka{Once: sync.Once{}}
-		kafka.SendLog(line.Text, "test_topic")
+		kafka.SendToProducerChan(line.Text, "test_topic")
 	}
 }
 
@@ -46,6 +43,5 @@ func Read() (*tail.Tail, error) {
 		fmt.Println("tail file failed, err:", err)
 		return nil, err
 	}
-
 	return tails, nil
 }

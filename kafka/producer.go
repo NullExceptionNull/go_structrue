@@ -15,35 +15,58 @@ type Kafka struct {
 	sync.Once
 }
 
+type LogData struct {
+	topic string
+	data  string
+}
+
 var producer sarama.SyncProducer
+
+var ProductChan chan *LogData
 
 func initProps() *conf.KafkaConf {
 	load, err := ini.Load("../conf/conf.ini")
 	if err != nil {
 		fmt.Println("init 文件加载失败")
 	}
-	var kafkaconf = new(conf.KafkaConf)
+	var kafkaConf = new(conf.KafkaConf)
 
-	err = load.Section("kafka").MapTo(kafkaconf)
+	err = load.Section("kafka").MapTo(kafkaConf)
 
 	if err != nil {
 		fmt.Println("init 文件解析失败")
 	}
-	return kafkaconf
+	return kafkaConf
 }
 
 func init() {
 	props := initProps()
 	collector := newDataCollector(props.Address)
 	producer = collector
+	ProductChan = make(chan *LogData, props.ChanSize)
+	fmt.Println("===init kafka producer success===")
+	SendMsg()
 }
 
-func (kafka *Kafka) SendLog(msg string, topic string) {
-	message := sarama.ProducerMessage{Topic: topic, Value: sarama.StringEncoder(msg), Timestamp: time.Now()}
-	_, _, err := producer.SendMessage(&message)
-	if err != nil {
-		fmt.Printf("msg %s ,topic %s 发送失败\n %v", msg, topic, err)
+func SendMsg() {
+	message := &sarama.ProducerMessage{}
+	for data := range ProductChan {
+		message.Value = sarama.StringEncoder(data.data)
+		message.Topic = data.topic
+		message.Timestamp = time.Now()
+		sendMessage, offset, err := producer.SendMessage(message)
+		fmt.Println(sendMessage, offset)
+		if err != nil {
+			fmt.Println(err)
+		}
 	}
+}
+
+func SendToProducerChan(msg string, topic string) {
+	logData := new(LogData)
+	logData.topic = topic
+	logData.data = msg
+	ProductChan <- logData
 }
 
 type accessLogEntry struct {
@@ -92,6 +115,7 @@ func newDataCollector(brokerList []string) sarama.SyncProducer {
 	if err != nil {
 		log.Fatalln("Failed to start Sarama producer:", err)
 	}
+
 	return producer
 }
 
