@@ -2,25 +2,48 @@ package kafka
 
 import (
 	"encoding/json"
+	"fmt"
+	"github.com/NullExceptionNull/go_structrue/conf"
 	"github.com/Shopify/sarama"
+	"gopkg.in/ini.v1"
 	"log"
+	"sync"
 	"time"
 )
 
-type Server struct {
-	DataCollector     sarama.SyncProducer
-	AccessLogProducer sarama.AsyncProducer
+type Kafka struct {
+	sync.Once
 }
 
-func (s *Server) Close() error {
-	if err := s.DataCollector.Close(); err != nil {
-		log.Println("Failed to shut down data collector cleanly", err)
-	}
+var producer sarama.SyncProducer
 
-	if err := s.AccessLogProducer.Close(); err != nil {
-		log.Println("Failed to shut down access log producer cleanly", err)
+func initProps() *conf.KafkaConf {
+	load, err := ini.Load("../conf/conf.ini")
+	if err != nil {
+		fmt.Println("init 文件加载失败")
 	}
-	return nil
+	var kafkaconf = new(conf.KafkaConf)
+
+	err = load.Section("kafka").MapTo(kafkaconf)
+
+	if err != nil {
+		fmt.Println("init 文件解析失败")
+	}
+	return kafkaconf
+}
+
+func init() {
+	props := initProps()
+	collector := newDataCollector(props.Address)
+	producer = collector
+}
+
+func (kafka *Kafka) SendLog(msg string, topic string) {
+	message := sarama.ProducerMessage{Topic: topic, Value: sarama.StringEncoder(msg), Timestamp: time.Now()}
+	_, _, err := producer.SendMessage(&message)
+	if err != nil {
+		fmt.Printf("msg %s ,topic %s 发送失败\n %v", msg, topic, err)
+	}
 }
 
 type accessLogEntry struct {
@@ -69,32 +92,30 @@ func newDataCollector(brokerList []string) sarama.SyncProducer {
 	if err != nil {
 		log.Fatalln("Failed to start Sarama producer:", err)
 	}
-
 	return producer
 }
 
-func newAccessLogProducer(brokerList []string) sarama.AsyncProducer {
-
-	// For the access log, we are looking for AP semantics, with high throughput.
-	// By creating batches of compressed messages, we reduce network I/O at a cost of more latency.
-	config := sarama.NewConfig()
-
-	config.Producer.RequiredAcks = sarama.WaitForLocal       // Only wait for the leader to ack
-	config.Producer.Compression = sarama.CompressionSnappy   // Compress messages
-	config.Producer.Flush.Frequency = 500 * time.Millisecond // Flush batches every 500ms
-
-	producer, err := sarama.NewAsyncProducer(brokerList, config)
-	if err != nil {
-		log.Fatalln("Failed to start Sarama producer:", err)
-	}
-
-	// We will just log to STDOUT if we're not able to produce messages.
-	// Note: messages will only be returned here after all retry attempts are exhausted.
-	go func() {
-		for err := range producer.Errors() {
-			log.Println("Failed to write access log entry:", err)
-		}
-	}()
-
-	return producer
-}
+//func newAccessLogProducer(brokerList []string) sarama.AsyncProducer {
+//
+//	// For the access log, we are looking for AP semantics, with high throughput.
+//	// By creating batches of compressed messages, we reduce network I/O at a cost of more latency.
+//	config := sarama.NewConfig()
+//
+//	config.Producer.RequiredAcks = sarama.WaitForLocal       // Only wait for the leader to ack
+//	config.Producer.Compression = sarama.CompressionSnappy   // Compress messages
+//	config.Producer.Flush.Frequency = 500 * time.Millisecond // Flush batches every 500ms
+//
+//	producer, err := sarama.NewAsyncProducer(brokerList, config)
+//	if err != nil {
+//		log.Fatalln("Failed to start Sarama producer:", err)
+//	}
+//	// We will just log to STDOUT if we're not able to produce messages.
+//	// Note: messages will only be returned here after all retry attempts are exhausted.
+//	go func() {
+//		for err := range producer.Errors() {
+//			log.Println("Failed to write access log entry:", err)
+//		}
+//	}()
+//
+//	return producer
+//}

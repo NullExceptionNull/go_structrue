@@ -2,7 +2,9 @@ package log_agent
 
 import (
 	"fmt"
+	"github.com/NullExceptionNull/go_structrue/kafka"
 	"github.com/hpcloud/tail"
+	"sync"
 )
 
 const FILE_NAME string = "./log"
@@ -23,16 +25,27 @@ func init() {
 	}
 }
 
-func Read() {
+func run() {
+	lines, err := Read()
+
+	if err != nil {
+		fmt.Println("tail error")
+	}
+
+	for line := range lines.Lines {
+		//这里发到kafka
+		fmt.Println(line.Text)
+		kafka := kafka.Kafka{Once: sync.Once{}}
+		kafka.SendLog(line.Text, "test_topic")
+	}
+}
+
+func Read() (*tail.Tail, error) {
 	tails, err := tail.TailFile(FILE_NAME, *config)
 	if err != nil {
 		fmt.Println("tail file failed, err:", err)
-		return
-	}
-	for {
-		for line := range tails.Lines {
-			fmt.Println(line.Text)
-		}
+		return nil, err
 	}
 
+	return tails, nil
 }
